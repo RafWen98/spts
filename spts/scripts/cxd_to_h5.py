@@ -333,7 +333,7 @@ def guess_ROI(ff, flatfield_filename, ff_low_limit, roi_fraction):
     return roi
 
 
-def cxd_to_h5(filename_cxd,  bg, ff, roi, good_pixels, filename_cxi, do_percent_filter, filt_percent, filt_frames, cropping, minx, maxx, miny, maxy, skip_raw = False):
+def cxd_to_h5(filename_cxd,  bg, ff, roi, good_pixels, W, do_percent_filter, filt_percent, filt_frames, cropping, minx, maxx, miny, maxy, skip_raw = False):
     print("*************************************")
     print("*   Particle conversion section     *")
     print("*************************************")
