@@ -29,18 +29,9 @@ def tong_spts_ana(args, conf, out_file, silent = False):
         original_level = logging.getLogger().level
         logging.getLogger().setLevel(logging.CRITICAL)
 
-    
-    if args.mpi:    #not really happening anyway
-        import mpi4py
-        comm = mpi4py.MPI.COMM_WORLD
-        is_worker = comm.rank > 0
-        H = h5writer.H5WriterMPISW(out_file, comm=comm, chunksize=100, compression=None)
-        if is_worker:
-            W = spts.worker.Worker(conf, i0_offset=comm.rank-1, step_size=comm.size-1)
-    else:
-        is_worker = True
-        H = h5writer.H5Writer(out_file)
-        W = spts.worker.Worker(conf)
+    is_worker = True
+    H = h5writer.H5Writer(out_file)
+    W = spts.worker.Worker(conf)
 
     if is_worker:
         while True:
