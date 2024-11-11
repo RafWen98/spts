@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import argparse
 import os
 import numpy
@@ -5,8 +6,23 @@ import sys
 import time
 import h5py
 import h5writer
+import logging
+import logging.handlers
 import pandas as pd
 import cxd_to_h5 as cxd
+import concurrent.futures
+import multiprocessing
+from io import StringIO
+from contextlib import redirect_stdout, redirect_stderr
+
+# Add the parent directory to the sys.path
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(parent_dir)
+
+import utils.log_book as log_book
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)  # Set initial logging level
 
 
 def tong_code(args):
@@ -47,17 +63,14 @@ def tong_code(args):
     W.close()
     if args.skip_raw:
         h5py.File(f_out,'r+')['entry_1']['data_1']['data'] = h5py.SoftLink('/entry_1/image_1/data')
-        
 
-
-if __name__ == "__main__":
-
+def get_args():
     parser = argparse.ArgumentParser(
         description='Conversion of CXD (Hamamatsu file format) to HDF5')
-    parser.add_argument('log_file', type=str, nargs='?',
-                        help='.csv filename of the log book.', default = None)
-    parser.add_argument('data_path', type=str, nargs='?',
+    parser.add_argument('-data_path', type=str, nargs='?',
                         help='path of stored data.', default = None)
+    parser.add_argument('-log_file', type=str, nargs='?',
+                        help='.csv filename of the log book.', default = None)
     parser.add_argument('-auto', '--automatic-mode', type=bool,
                         help='iterates through folder and creates non existing cxi files.', default = False)
     parser.add_argument('-s', '--start-filenumber', type=int,
@@ -103,8 +116,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-
-
     if args.log_file is None:
         print("ERROR: No log file given.")
         sys.exit(-1)
@@ -113,93 +124,83 @@ if __name__ == "__main__":
         print("ERROR: No data path given.")
         sys.exit(-1)
 
-    if args.automatic_mode:
-        #get log file and creat a panda dataset
-        try:
-            log = pd.read_csv(args.log_file)
-            print("Logfile found and loaded.")
-        except:
-            print("ERROR: Log file not found or not in CSV format.")
-            sys.exit(-1)
-        
-        #check if data_path exists
-        if not os.path.exists(args.data_path):
-            print("ERROR: Data path does not exist.")
-            sys.exit(-1)
-        else:
-            print("Data path found.")
 
-        flatfield_file_found = False
-        if args.flatfield_filename is None:
+    #get log file and creat a panda dataset
+    try:
+        log = pd.read_csv(args.log_file)
+        print("Logfile found and loaded.")
+    except:
+        print("ERROR: Log file not found or not in CSV format.")
+        sys.exit(-1)
+    
+    #check if data_path exists
+    if not os.path.exists(args.data_path):
+        print("ERROR: Data path does not exist.")
+        sys.exit(-1)
+    else:
+        print("Data path found.")
+
+    if args.flatfield_filename is None:     #will try to find a flatfield file
+        try:
+            args.flatfield_filename = "_flatfield01624.cxd"
+            args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
+            flatfield_file_found = True
+            print("_flatfield Flatfield file found.")
+        except:
+            print("Const '_flatfield.cxd' file not found, looking for data01624.cxd")
             try:
-                args.flatfield_filename = "_flatfield01624.cxd"
+                args.flatfield_filename = "data01624.cxd"
                 args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
                 flatfield_file_found = True
-                print("_flatfield Flatfield file found.")
+                print("data01624.cxd Flatfield file found.")
             except:
-                print("Const _flatfield01624.cxd file not found, looking for data01624.cxd")
-                try:
-                    args.flatfield_filename = "data01624.cxd"
-                    args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
-                    flatfield_file_found = True
-                    print("data01624.cxd Flatfield file found.")
-                except:
-                    print("ERROR: No flatfield file found.")
-                    sys.exit(-1)
+                print("ERROR: No flatfield file found.")
+                sys.exit(-1)
 
-        #check data_path and create a list of all files ending with .cxd
-        files = [f for f in os.listdir(args.data_path) if f.endswith('.cxd')]
-        #check data_path and create a list of all files ending with .cxi
-        files_done = [f for f in os.listdir(args.data_path) if f.endswith('.cxi')]
-        #create a list of files that still need to be processed
-        files_to_do = list(set(files) - set(files_done))
+    return args
+
+def process_file(args, file, files_to_do, log):
+
+    print("Processing file: ", file)
+    print("File ", files_to_do.index(file) + 1, " of ", len(files_to_do))
+
+    row = log.loc[log['File'] == file]
+    bg_file = row['Dark Correction '].values[0]
+    bg_row = log.loc[log['File'] == bg_file]
+    bg_n_max = int(bg_row['frames'].values[0])
+
+    args.filename = os.path.join(args.data_path, file)
+    args.background_filename = os.path.join(args.data_path, bg_file)
+    args.bg_frames_max = bg_n_max
+
+    original_level = logging.getLogger().level
+    logging.getLogger().setLevel(logging.CRITICAL)
+    tong_code(args)
+    logging.info("This will not appear in the console.")
+    logging.getLogger().setLevel(original_level)
         
-        #order the files according to the file number
-        files_to_do.sort()
-        print("found these files to process:")
-        print(files_to_do)
-        if flatfield_file_found:
-            print("Flatfield file found: ", args.flatfield_filename)
-            files_to_do.remove(args.flatfield_filename)
+def main():
+    args = get_args()
+    log = log_book.read_log_book(args.log_file)
+    files_to_do = log_book.get_cxd2do(args, log)
 
-        files_to_do = list(set(files_to_do) - set(["_flatfield01624.cxd", "data01624.cxd"]))
-        print(files_to_do)
-        
-
-        print(files_to_do[0])
-        print(args.flatfield_filename)
-        iter_time = 0
-        #iterate through files_to_do and process them
-        for file in files_to_do:
-            print("Processing file: ", file)
-            #track the time of the last few iterations and give an estimate for the remaining time
-            start_time = time.time()
-            print("File ", files_to_do.index(file)+1, " of ", len(files_to_do))
-            print("Estimated time remaining: ", iter_time*(len(files_to_do) - files_to_do.index(file)))
-
-
-            #some of the files have the incorrect ending in the logfile
-            row = log.loc[log['File'] == file[:-4] + ".cxd"]    #find row
-            bg_file = row['Dark Correction '].values[0]         #extract background file name
-            bg_n_max = row['frames'].values[0]                  #extract number of frames of background file
-
-            #extract flatfield file name from the row 
-            #(flatfield not implemented so standard flatfield file)
-            #ff_file = row['Flatfield file name'].values[0]
-
-            args.filename = os.path.join(args.data_path, file)
-            args.background_filename = os.path.join(args.data_path, bg_file)
-            args.bg_frames_max = bg_n_max
-            tong_code(args)
-
-            end_time = time.time()
-            iter_time = end_time - start_time
-            print("Time taken: ", iter_time)
-        
+    start_time = time.time()
+    iter_time = 0
     
+    #iterate through files_to_do and process them
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = [executor.submit(process_file, args, file, files_to_do, log) for file in files_to_do]
+            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                try:
+                    future.result()
+                    elapsed_time = time.time() - start_time
+                    iter_time = elapsed_time / (i + 1)
+                    remaining_files = len(files_to_do) - (i + 1)
+                    eta = iter_time * remaining_files
+                    print(f"Processed {i + 1}/{len(files_to_do)} files. ETA: {eta:.2f} seconds")
+                except Exception as exc:
+                    print(f'Generated an exception: {exc}')
 
-
-
-
-
-
+if __name__ == "__main__":
+    main()
+    #main()
