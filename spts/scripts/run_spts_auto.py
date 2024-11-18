@@ -7,12 +7,12 @@ import socket
 import pandas as pd
 import spts.config
 import spts.worker
+import h5py
 
 # Add SPTS stream handler to other loggers
 import h5writer
 import concurrent.futures
 import logging
-
 
 # Add the parent directory to the sys.path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -60,33 +60,12 @@ def tong_spts_ana(args, conf, out_file, silent = False):
         logging.info("This will not appear in the console.")
         logging.getLogger().setLevel(original_level)
 
-
-def run_spts_all():
-    filenames = [f for f in os.listdir(".") if f.endswith(".cxi")]
-
-    if len(sys.argv) > 1:
-        timestamp = sys.argv[1]
-        filenames = [filename for filename in filenames if timestamp in filename]
-
-    for f in filenames:
-        n = f[:-4]
-        
-        d = "./"+n+"_analysis"
-        if not os.path.exists(d):
-            os.mkdir(d)
-
-        #cmds = ["cp ./spts.conf %s/" % (d), "ln -s ../%s %s/frames.cxi" % (f,d), "cd %s; run_spts.py -c 9 -v; cd .." % (d)]
-        cmds = ["cp ./spts.conf %s/" % (d), "ln -s ../%s %s/frames.cxi" % (f,d), "cd %s; run_spts.py -v; cd .." % (d)]
-        for cmd in cmds:
-            print(cmd) 
-            os.system(cmd)
-
 def get_args():
     parser = argparse.ArgumentParser(description='Mie scattering imaging data analysis')
     parser.add_argument('-dp', '--directory', type=str, help='directory for input', default=None)
     parser.add_argument('-cf', '--config_file', type=str, help='config file containing analysis data', default=None)
     parser.add_argument('-lf', '--log_file', type=str, help='log book file containing experiment data', default=None)
-    parser.add_argument('-out', '--out_name_appx', type=str, help='Appendix added onto output file, ie: ana_d25 => data00000_ana_d25.cxi', default=None)
+    parser.add_argument('-out_appx', '--out_name_appx', type=str, help='Appendix added onto output file and folder, ie: ana_d25 => data00000_ana_d25.cxi', default=None)
     parser.add_argument('-sn', '--start_number', type=int, help='start number of to be analyzed data', default=None)
     parser.add_argument('-en', '--end_number', type=int, help='end number of to be analyzed data', default=None)
     parser.add_argument('-sd', '--save_directory', type=str, help='output directory', default=None)
@@ -122,7 +101,7 @@ def get_args():
         try:
             conf = spts.config.read_configfile(args.directory + "spts.conf")
             args.config_file = args.directory + "spts.conf"
-            print("Default config file found and loaded.")
+            print(f"Default config file found and loaded. Path: {args.config_file}")
         except:
             print("ERROR: No config file found.")
             sys.exit(-1)
@@ -137,25 +116,45 @@ def get_args():
             sys.exit(-1)
 
     return args
-
-def check_dataset_exists(file_path, dataset_name):
-    import h5py
-    with h5py.File(file_path, 'r') as f:
-        if dataset_name in f:
+        
+def is_hdf5_file_valid(file_path):
+    try:
+        with h5py.File(file_path, 'r') as f:
             return True
-        else:
-            return False
+    except OSError:
+        return False
 
 def prepare_save_directory(args, file, conf, log):
+    appendix = ""
+    if args.out_name_appx is not None:
+        appendix = "_" + args.out_name_appx
 
     #check and creat save directory
     if args.save_directory is None:
+        sn_str = ""
+        en_str = ""
+        if args.start_number is not None:
+            sn_str = str(args.start_number)
+        if args.end_number is not None:
+            en_str = str(args.end_number)
+        #get name form the last folder which contains the data from the directory path
+        data_fol_name = args.directory.split("/")[-2] + args.directory.split("/")[-1]
+        data_fol_str = "ana_" + data_fol_name + "/" + data_fol_name
+
         if args.window_size < 10:
-            args.save_directory = "./data/analysis/ana_w0" + str(conf['analyse']['window_size']) + "/"
+            args.save_directory = "./data/analysis/" + data_fol_str + "_ana_w0" + str(conf['analyse']['window_size']) + appendix + "/"
         else:
-            args.save_directory = "./data/analysis/ana_w" + str(conf['analyse']['window_size']) + "/"
+            args.save_directory = "./data/analysis/" + data_fol_str + "_ana_w" + str(conf['analyse']['window_size']) + appendix + "/"
+    else:
+        #check if last elemnet in directy string is /, if not add it
+        if args.save_directory[-1] != "/":
+            args.save_directory = args.save_directory + "/"
+
     if not os.path.exists(args.save_directory):
         os.makedirs(args.save_directory)
+        os.makedirs(args.save_directory + "conf/")
+
+    print("Save directory: ", args.save_directory)
     
     appendix = ""
     if args.out_name_appx is not None:
@@ -186,6 +185,12 @@ def run_process(args, file, conf, log, silent=False):
         else:
             print(f"File {out_file} already exists. Skipping processing.")
             return
+        
+    # Check if the input HDF5 file is valid
+    input_file_path = conf['general']['filename']
+    if not is_hdf5_file_valid(input_file_path):
+        print(f"Input file {input_file_path} is corrupted or invalid. Skipping processing.")
+        return
     
     if silent:  # Suppress all logging output
         original_level = logging.getLogger().level
@@ -197,6 +202,7 @@ def run_process(args, file, conf, log, silent=False):
         logging.info("This will not appear in the console.")
         logging.getLogger().setLevel(original_level)
 
+    spts.config.write_configfile(conf, args.save_directory + "conf/spts_" + file[:-4] + ".conf")
     print("Saved file: ", file)
 
 def prepare_config(conf, args, file, log):
@@ -230,6 +236,8 @@ def run_spts_auto():
     start_time = time.time()
     iter_time = 0
 
+    #wait for 10secs
+    time.sleep(10)
     print(files_to_do)
 
     #iterate through files_to_do and process them
@@ -245,9 +253,9 @@ def run_spts_auto():
                 print(f"Processed {i + 1}/{len(files_to_do)} files. ETA: {eta:.2f} seconds")
             except Exception as exc:
                 print(f'Generated an exception: {exc}')
+    if args.save_directory is not None:
+        spts.config.write_configfile(conf, args.save_directory + "spts.conf")
             
-
-                
 
 if __name__ == "__main__":
     run_spts_auto()

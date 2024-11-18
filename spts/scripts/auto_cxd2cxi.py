@@ -14,6 +14,7 @@ import concurrent.futures
 import multiprocessing
 from io import StringIO
 from contextlib import redirect_stdout, redirect_stderr
+import traceback
 
 # Add the parent directory to the sys.path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -71,11 +72,11 @@ def get_args():
                         help='path of stored data.', default = None)
     parser.add_argument('-log_file', type=str, nargs='?',
                         help='.csv filename of the log book.', default = None)
-    parser.add_argument('-auto', '--automatic-mode', type=bool,
-                        help='iterates through folder and creates non existing cxi files.', default = False)
-    parser.add_argument('-s', '--start-filenumber', type=int,
+    parser.add_argument('-bg_file', '--background_file', type=str,
+                        help='path to single background file for batch processing', default = False)
+    parser.add_argument('-sn', '--start_number', type=int,
                         help='number of the first file to be processed.', default = None)
-    parser.add_argument('-e', '--end-filenumber', type=int,
+    parser.add_argument('-en', '--end_number', type=int,
                         help='number of the last file to be processed.', default = None)
     parser.add_argument('-bn', '--bg-frames-max', type=int,
                         help='Maximum number of frames used for background calculation.', default=100)
@@ -124,38 +125,44 @@ def get_args():
         print("ERROR: No data path given.")
         sys.exit(-1)
 
+    #check if data_path exists
+    if not os.path.exists(args.data_path):
+        print(f"ERROR: Data path does not exist. {args.data_path}")
+        sys.exit(-1)
+    else:
+        print(f"Data path found. path {args.data_path}")
 
     #get log file and creat a panda dataset
     try:
         log = pd.read_csv(args.log_file)
-        print("Logfile found and loaded.")
-    except:
-        print("ERROR: Log file not found or not in CSV format.")
+        print(f"Logfile found and loaded. Path: {args.log_file}" )
+    except Exception as e:
+        print(f"ERROR: Log file not found or not in CSV format at path {args.log_file}")
+        print(e)
         sys.exit(-1)
-    
-    #check if data_path exists
-    if not os.path.exists(args.data_path):
-        print("ERROR: Data path does not exist.")
-        sys.exit(-1)
-    else:
-        print("Data path found.")
 
     if args.flatfield_filename is None:     #will try to find a flatfield file
         try:
-            args.flatfield_filename = "_flatfield01624.cxd"
-            args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
+            args.flatfield_filename = "data01624.cxd"
+            args.flatfield_filepath = "data/consts/" + args.flatfield_filename
             flatfield_file_found = True
-            print("_flatfield Flatfield file found.")
+            print(f"Flatfield file found. Path: {args.flatfield_filepath}")
         except:
-            print("Const '_flatfield.cxd' file not found, looking for data01624.cxd")
             try:
-                args.flatfield_filename = "data01624.cxd"
+                args.flatfield_filename = "_flatfield01624.cxd"
                 args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
                 flatfield_file_found = True
-                print("data01624.cxd Flatfield file found.")
+                print("_flatfield Flatfield file found.")
             except:
-                print("ERROR: No flatfield file found.")
-                sys.exit(-1)
+                print("Const '_flatfield.cxd' file not found, looking for data01624.cxd")
+                try:
+                    args.flatfield_filename = "data01624.cxd"
+                    args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
+                    flatfield_file_found = True
+                    print("data01624.cxd Flatfield file found.")
+                except:
+                    print("ERROR: No flatfield file found.")
+                    sys.exit(-1)
 
     return args
 
@@ -165,13 +172,38 @@ def process_file(args, file, files_to_do, log):
     print("File ", files_to_do.index(file) + 1, " of ", len(files_to_do))
 
     row = log.loc[log['File'] == file]
-    bg_file = row['Dark Correction '].values[0]
-    bg_row = log.loc[log['File'] == bg_file]
-    bg_n_max = int(bg_row['frames'].values[0])
+
+    if args.background_file:
+        bg_file = args.background_file
+        if args.bg_frames_max is None:
+            bg_n_max = 100
+            print("No background frames given. Using default value of 100.")
+    else:
+        bg_file = row['Dark Correction '].values[0]
+
+        #if bg_fie doesnt end with .cxd, but is a number like '2330', then it is a file number
+        if not bg_file.endswith('.cxd'):
+            #check if the number is a number
+            if not bg_file.isdigit():
+                print(f"ERROR: Background file found for {file} in log file is not a number or a .cxd file.")
+                sys.exit(-1)
+            #also check that the number has 5 values since the log file has 5 digit file numbers
+            if not len(bg_file) == 5:
+                #add zeros in front of the number until it has 5 digits
+                bg_file = bg_file.zfill(5)
+            bg_file = f'data{bg_file}.cxd'
+
+        bg_row = log.loc[log['File'] == bg_file]
+        bg_n_max = int(bg_row['frames'].values[0])
 
     args.filename = os.path.join(args.data_path, file)
     args.background_filename = os.path.join(args.data_path, bg_file)
     args.bg_frames_max = bg_n_max
+
+    #check if background file exists
+    if not os.path.exists(args.background_filename):
+        print(f"ERROR: Background file not found in folder. {args.background_filename}")
+        sys.exit(-1)
 
     original_level = logging.getLogger().level
     logging.getLogger().setLevel(logging.CRITICAL)
@@ -200,6 +232,7 @@ def main():
                     print(f"Processed {i + 1}/{len(files_to_do)} files. ETA: {eta:.2f} seconds")
                 except Exception as exc:
                     print(f'Generated an exception: {exc}')
+                    traceback.print_exc()
 
 if __name__ == "__main__":
     main()

@@ -25,8 +25,6 @@ def check_name_in_log(name, log):
     else:
         return False
 
-
-
 #function which checks if name is found in row of pd dataset
 def check_name_in_row(name, row):
     if name in row['File'].values:
@@ -47,12 +45,55 @@ def get_cxd2do(args, log):
     #order the files according to the file number
     files_to_do.sort()
     #find each file in the log file and check if the value in the first column is equal to "background"
+    files_to_do = check_bg_and_exclude(args, files_to_do, log)
+
+    if args.start_number is not None:
+        print(f'starting at {args.start_number} from given startnumber')
+        files_to_do = [filename for filename in files_to_do if int(args.start_number) <= int(filename[4:9])]
+
+
+    if args.end_number is not None:
+        print(f'ending at {args.end_number} from given endnumber')
+        files_to_do = [filename for filename in files_to_do if int(args.end_number) >= int(filename[4:9])]
+
+    files_to_do.sort()
+    print(f"Number of files to process: {len(files_to_do)}")
+    print("found these files to process:")
+    print(files_to_do)
+    return files_to_do
+
+
+def get_cxi2do(args, log):
+    filenames = [f for f in os.listdir(args.directory) if f.endswith(".cxi")]
+
+    if args.start_number is not None:
+        print(f'starting at {args.start_number} from given startnumber')
+        files_to_do = [filename for filename in filenames if int(args.start_number) <= int(filename[4:9])]
+        filenames = files_to_do
+
+    if args.end_number is not None:
+        print(f'ending at {args.end_number} from given endnumber')
+        files_to_do = [filename for filename in filenames if int(args.end_number) >= int(filename[4:9])]
+        filenames = files_to_do
+
+    filenames.sort()
+    print(f"Number of files to process: {len(filenames)}")
+
+    return filenames
+
+
+def check_bg_and_exclude(args, filenames, log):
+    """
+        checks log file if the description of the file is background
+        and if the analysis comment contains 'exclude' 
+    """
+
     bg_files = []
     exclude_files = []
 
-    for file in files_to_do:
+    for file in filenames:
         try:
-            row = log.loc[log['File']== file]                 #find row of file
+            row = log.loc[log['File']== file[:9] + ".cxd"]                 #find row of file
             description = row['Description'].values[0]        #extract background file name
             if description == "background":
                 bg_files.append(file)
@@ -72,24 +113,53 @@ def get_cxd2do(args, log):
             sys.exit(-1)
     
     #substract background- and exclude files from files_to_do
-    files_to_do = list(set(files_to_do) - set(bg_files) - set(exclude_files))
+    files_to_do = list(set(filenames) - set(bg_files) - set(exclude_files))
 
-    print(f"Number of files to process: {len(files_to_do)}")
-    print("found these files to process:")
-    print(files_to_do)
     return files_to_do
 
 
+def filenames2logfilenames(filenames):
+    """
+        converts filenames from .cxi to .cxd
+    """
+    return [f[:9] + ".cxd" for f in filenames]
 
-def get_cxi2do(args, log):
-    filenames = [f for f in os.listdir(args.directory) if f.endswith(".cxi")]
+def check_descr(args, filenames, log):
+    """
+        checks log file if the description of all the files is the same and logs a warnign if not
+    """
+    filenames = filenames2logfilenames(filenames)
 
-    if args.start_number is not None:
-        files_to_do = [filename for filename in filenames if int(args.start_number) <= int(filename[4:9])]
+    #sets the first files description as standard
+    args.description = log.loc[log['File']== filenames[0]]['Description'].values[0]
 
-    if args.end_number is not None:
-        files_to_do = [filename for filename in filenames if int(args.end_number) >= int(filename[4:9])]
+    for file in filenames:
+        try:
+            row = log.loc[log['File']== file]                 #find row of file
+            description = row['Description'].values[0]      
+            if description != args.description:
+                print(f"WARNING: Description of file {file} is not equal to {args.description}")
 
-    filenames.sort()
+        except:
+            print(f"ERROR: File {file} not found in log file. Maybe {args.log_file} is outdated.")
+            sys.exit(-1)
 
-    return filenames
+    return args.description
+
+def populate_inj_distance(args, filenames, log):
+    """
+        checks log file if the description of all the files is the same and logs a warnign if not
+    """
+    filenames = filenames2logfilenames(filenames)
+
+    for file in filenames:
+        row = log.loc[log['File']== file]
+        #populate injector distance   
+        try:
+            args.injection = row['Injector distance'].values[0]
+        except:
+            print(f"WARNING: No injector distance found for file {file}")
+            args.injection = ""
+
+    return args.description
+
