@@ -74,7 +74,7 @@ def get_args():
     parser.add_argument('-d', '--debug', dest='debug',  action='store_true', help='debugging mode (even more output than in verbose mode)', default=False)
     parser.add_argument('-c','--cores', type=int, help='number of cores', default=1)
     parser.add_argument('-m','--mpi', dest='mpi', action='store_true', help='mpi processes = reader(s) + writer', default=False)
-    parser.add_argument('-ow','--overwrite', type=str, help='Standard False, if True overwrites file if found in folder', default=1)
+    parser.add_argument('-ow','--overwrite', type=bool, help='Standard False, if True overwrites file if found in folder', default=False)
     
     args = parser.parse_args()
 
@@ -87,6 +87,8 @@ def get_args():
     #check if data directory exists
     if not os.path.exists(args.directory):
         parser.error(f"Cannot find data path {args.directory} in current directory.")
+    else:
+        print(f"Data directory: {args.directory}")
 
     #check if config file exists and finds standard otherwise
     if args.config_file:
@@ -139,12 +141,12 @@ def prepare_save_directory(args, file, conf, log):
             en_str = str(args.end_number)
         #get name form the last folder which contains the data from the directory path
         data_fol_name = args.directory.split("/")[-2] + args.directory.split("/")[-1]
-        data_fol_str = "ana_" + data_fol_name + "/" + data_fol_name
+        data_fol_str = "ana_" + data_fol_name + "_" + sn_str + "-" + en_str
 
         if args.window_size < 10:
-            args.save_directory = "./data/analysis/" + data_fol_str + "_ana_w0" + str(conf['analyse']['window_size']) + appendix + "/"
+            args.save_directory = args.directory + "/" + data_fol_str + "_ana_w0" + str(conf['analyse']['window_size']) + appendix + "/"
         else:
-            args.save_directory = "./data/analysis/" + data_fol_str + "_ana_w" + str(conf['analyse']['window_size']) + appendix + "/"
+            args.save_directory = args.directory + "/" + data_fol_str + "_ana_w" + str(conf['analyse']['window_size']) + appendix + "/"
     else:
         #check if last elemnet in directy string is /, if not add it
         if args.save_directory[-1] != "/":
@@ -213,8 +215,12 @@ def prepare_config(conf, args, file, log):
     else:
         conf['analyse']['window_size'] = args.window_size
 
+    #prepath
+    #prepath = "//home/rwendl/"
+    prepath = ""
+
     #define path of to be analyzed file
-    conf['general']['filename'] = args.directory + file[:-4] + ".cxi"
+    conf['general']['filename'] = prepath + args.directory + file[:-4] + ".cxi"
 
     #read number of frames from log file
     row = log.loc[log['File'] == file[:-4] + ".cxd"]
@@ -237,12 +243,12 @@ def run_spts_auto():
     iter_time = 0
 
     #wait for 10secs
-    time.sleep(10)
+    time.sleep(6)
     print(files_to_do)
 
     #iterate through files_to_do and process them
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        futures = [executor.submit(run_process, args, file, conf, log, silent=True) for file in files_to_do]
+        futures = [executor.submit(run_process, args, file, conf, log, silent=False) for file in files_to_do]
         for i, future in enumerate(concurrent.futures.as_completed(futures)):
             try:
                 future.result()

@@ -218,6 +218,8 @@ def main():
 
     start_time = time.time()
     iter_time = 0
+
+    
     
     #iterate through files_to_do and process them
     with concurrent.futures.ProcessPoolExecutor() as executor:

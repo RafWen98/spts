@@ -105,9 +105,11 @@ def check_bg_and_exclude(args, filenames, log):
         
         try:
             analysis_comment = str(row['data analysis'].values[0])
-            if analysis_comment is not "":
-                    if "exclude" in analysis_comment:
-                        exclude_files.append(file)
+            if analysis_comment != "":
+                #if anywhere in analysis_comment is "exclude" add file to exclude_files
+                if analysis_comment.lower().find("exclude") != -1:
+                    exclude_files.append(file)
+                    print(f"INFO: File {file} is excluded from analysis.")
         except Exception as e:
             print(f"ERROR: Problem with analysis comment. {e}")
             sys.exit(-1)
