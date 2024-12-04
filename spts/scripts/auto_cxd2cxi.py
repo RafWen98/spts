@@ -110,6 +110,8 @@ def get_args():
                         help='Maximum y-coordinate of cropped raw data.', default=2048)
     parser.add_argument('-o', '--out-filename', type=str,
                         help='destination file')
+    parser.add_argument('-overwr', '--overwrite', type=bool,
+                        help='overwrite already cxi files in folder', default=False)
     parser.add_argument('-sk', '--skip-raw', action='store_true',
                         help='Skip saving the raw data, instead linking to processed data')
     parser.add_argument('-q', '--quiet', action='store_true',
@@ -163,6 +165,18 @@ def get_args():
                 except:
                     print("ERROR: No flatfield file found.")
                     sys.exit(-1)
+    else:
+        #check if flatfield file contains "/"
+        if "/" in args.flatfield_filename:
+            args.flatfield_filepath = args.flatfield_filename
+        else:
+            args.flatfield_filepath = os.path.join(args.data_path, args.flatfield_filename)
+        #check if flatfield file exists
+        if not os.path.exists(args.flatfield_filepath):
+            print(f"ERROR: Flatfield file not found in folder. {args.flatfield_filepath}")
+            sys.exit(-1)
+        else:
+            print(f"Flatfield file found. Path: {args.flatfield_filepath}")
 
     return args
 
@@ -180,6 +194,11 @@ def process_file(args, file, files_to_do, log):
             print("No background frames given. Using default value of 100.")
     else:
         bg_file = row['Dark Correction '].values[0]
+
+        #chec if bg_file is a float
+        if isinstance(bg_file, float):
+            #convert to str
+            bg_file = str(int(bg_file))
 
         #if bg_fie doesnt end with .cxd, but is a number like '2330', then it is a file number
         if not bg_file.endswith('.cxd'):

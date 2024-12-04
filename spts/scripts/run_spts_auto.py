@@ -84,6 +84,10 @@ def get_args():
     if args.log_file is None:
         parser.error(f"No log book file was given. -lf=None")
 
+    #check if last element of datapath is a "/" other wise add one on it
+    if args.directory[-1] != "/":
+        args.directory = args.directory + "/"
+
     #check if data directory exists
     if not os.path.exists(args.directory):
         parser.error(f"Cannot find data path {args.directory} in current directory.")
@@ -136,17 +140,17 @@ def prepare_save_directory(args, file, conf, log):
         sn_str = ""
         en_str = ""
         if args.start_number is not None:
-            sn_str = str(args.start_number)
+            sn_str = "_" + str(args.start_number)
         if args.end_number is not None:
-            en_str = str(args.end_number)
+            en_str = "-" + str(args.end_number)
         #get name form the last folder which contains the data from the directory path
         data_fol_name = args.directory.split("/")[-2] + args.directory.split("/")[-1]
-        data_fol_str = "ana_" + data_fol_name + "_" + sn_str + "-" + en_str
+        data_fol_str = "spts_" + data_fol_name + sn_str + en_str
 
         if args.window_size < 10:
-            args.save_directory = args.directory + "/" + data_fol_str + "_ana_w0" + str(conf['analyse']['window_size']) + appendix + "/"
+            args.save_directory = args.directory + data_fol_str + "_w0" + str(conf['analyse']['window_size']) + appendix + "/"
         else:
-            args.save_directory = args.directory + "/" + data_fol_str + "_ana_w" + str(conf['analyse']['window_size']) + appendix + "/"
+            args.save_directory = args.directory + data_fol_str + "_w" + str(conf['analyse']['window_size']) + appendix + "/"
     else:
         #check if last elemnet in directy string is /, if not add it
         if args.save_directory[-1] != "/":

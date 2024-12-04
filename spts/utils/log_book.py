@@ -37,7 +37,9 @@ def get_cxd2do(args, log):
     files = [f for f in os.listdir(args.data_path) if f.endswith('.cxd')]
     #check data_path and create a list of all files ending with .cxi
     files_done = [f for f in os.listdir(args.data_path) if f.endswith('.cxi')]
-    files_done_cxd = [f[:-4] + ".cxd" for f in files_done]
+    files_done_cxd = []
+    if not args.overwrite:
+        files_done_cxd = [f[:-4] + ".cxd" for f in files_done]
     #create a list of files that still need to be processed
     files_to_do = list(set(files) - set(files_done_cxd))
     #exclude the flatfield file from the list
@@ -45,7 +47,7 @@ def get_cxd2do(args, log):
     #order the files according to the file number
     files_to_do.sort()
     #find each file in the log file and check if the value in the first column is equal to "background"
-    files_to_do = check_bg_and_exclude(args, files_to_do, log)
+    files_to_do = check_bg_ff_and_exclude(args, files_to_do, log)
 
     if args.start_number is not None:
         print(f'starting at {args.start_number} from given startnumber')
@@ -82,13 +84,14 @@ def get_cxi2do(args, log):
     return filenames
 
 
-def check_bg_and_exclude(args, filenames, log):
+def check_bg_ff_and_exclude(args, filenames, log):
     """
         checks log file if the description of the file is background
         and if the analysis comment contains 'exclude' 
     """
 
     bg_files = []
+    ff_files = []
     exclude_files = []
 
     for file in filenames:
@@ -99,6 +102,15 @@ def check_bg_and_exclude(args, filenames, log):
                 bg_files.append(file)
                #extract analysis comment
             
+        except:
+            print(f"ERROR: File {file} not found in log file. Maybe {args.log_file} is outdated.")
+            sys.exit(-1)
+
+        try:
+            row = log.loc[log['File']== file[:9] + ".cxd"]                 #find row of file
+            description = row['Description'].values[0]        #extract background file name
+            if description == "flatfield":
+                ff_files.append(file)
         except:
             print(f"ERROR: File {file} not found in log file. Maybe {args.log_file} is outdated.")
             sys.exit(-1)
